@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { memorialQuery } from "@/lib/memorial";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -90,7 +91,7 @@ const Gallery = () => {
     formData.append("caption", caption);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/photos`, {
+      const response = await fetch(`${API_BASE_URL}/photos?${memorialQuery()}`, {
         method: "POST",
         body: formData,
       });
@@ -109,7 +110,7 @@ const Gallery = () => {
         setSelectedFiles([]);
         toast.success("Photo(s) uploaded successfully!");
         // Refresh photos after upload
-        fetch(`${API_BASE_URL}/photos`)
+        fetch(`${API_BASE_URL}/photos?${memorialQuery()}`)
           .then((response) => response.json())
           .then((data) => {
             setPhotos(data.map(withFullSrc));
@@ -153,7 +154,7 @@ const Gallery = () => {
 
       await Promise.all(
         photoIds.map((photoId) =>
-          fetch(`${API_BASE_URL}/photos/${photoId}`, {
+          fetch(`${API_BASE_URL}/photos/${photoId}?${memorialQuery()}`, {
             method: "DELETE",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -181,7 +182,7 @@ const Gallery = () => {
   };
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/photos`)
+    fetch(`${API_BASE_URL}/photos?${memorialQuery()}`)
       .then((response) => response.json())
       .then((data) => {
         setPhotos(data.map(withFullSrc));

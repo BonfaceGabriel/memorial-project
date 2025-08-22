@@ -4,6 +4,7 @@ import Footer from "@/components/Footer";
 import useAuth from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { memorialQuery } from "@/lib/memorial";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import "./Eulogy.css";
@@ -116,7 +117,7 @@ const Eulogy = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/eulogy`);
+        const res = await fetch(`${API_BASE_URL}/eulogy?${memorialQuery()}`);
         if (!res.ok) throw new Error("Failed to fetch eulogy content");
         const data = await res.json();
         if (data?.content) setContent(parseContent(data.content));
@@ -148,7 +149,7 @@ const Eulogy = () => {
         ...unsavedRef.current,
       } as ContentMap;
 
-      const response = await fetch(`${API_BASE_URL}/eulogy`, {
+      const response = await fetch(`${API_BASE_URL}/eulogy?${memorialQuery()}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

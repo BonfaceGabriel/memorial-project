@@ -28,12 +28,31 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-default-secret";
 const CACHE_DURATION_MS = 2 * 60 * 1000; // 2 minutes
 const cache = {};
 
-const clearCache = (key) => (req, res, next) => {
+const clearCache = (keyBuilder) => (req, res, next) => {
+  const key = typeof keyBuilder === "function" ? keyBuilder(req) : keyBuilder;
   if (key) {
     console.log(`Cache cleared for key: ${key}`);
     delete cache[key];
   }
   next();
+};
+
+const resolveMemorial = async (req, res, next) => {
+  try {
+    let slug = req.hostname.split(".")[0];
+    if (slug === "localhost" || slug === "127" || !slug) {
+      slug = req.query.memorial || "demo";
+    }
+    const { rows } = await pool.query("SELECT * FROM memorials WHERE slug = $1", [slug]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Memorial not found" });
+    }
+    req.memorial = rows[0];
+    next();
+  } catch (err) {
+    console.error("Error resolving memorial:", err);
+    res.status(500).json({ error: "Failed to resolve memorial" });
+  }
 };
 
 /* ───────── Express setup ──────────────────────────────────────────────── */
@@ -86,9 +105,28 @@ app.post("/login", async (req, res) => {
   }
 });
 
+/* ───────────────── Memorial Endpoints ───────────────────────────── */
+app.get("/memorial", resolveMemorial, (req, res) => {
+  res.json(req.memorial);
+});
+
+app.post("/memorials", auth, adminOnly, async (req, res) => {
+  const { slug, display_name, template_id } = req.body;
+  try {
+    const { rows } = await pool.query(
+      "INSERT INTO memorials (slug, display_name, template_id) VALUES ($1,$2,$3) RETURNING *",
+      [slug, display_name, template_id || "default"],
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("Error creating memorial:", err);
+    res.status(500).json({ error: "Failed to create memorial." });
+  }
+});
+
 /* ───────────────── Tributes Endpoints ────────────────────────────── */
-app.get("/tributes", async (_req, res) => {
-  const cacheKey = "tributes";
+app.get("/tributes", resolveMemorial, async (req, res) => {
+  const cacheKey = `tributes-${req.memorial.id}`;
   const now = Date.now();
   if (cache[cacheKey] && now - cache[cacheKey].timestamp < CACHE_DURATION_MS) {
     console.log("Serving tributes from cache");
@@ -97,7 +135,8 @@ app.get("/tributes", async (_req, res) => {
 
   try {
     const { rows } = await pool.query(
-      "SELECT * FROM tributes ORDER BY timestamp DESC",
+      "SELECT * FROM tributes WHERE memorial_id = $1 ORDER BY timestamp DESC",
+      [req.memorial.id],
     );
     cache[cacheKey] = {
       timestamp: now,
@@ -111,31 +150,37 @@ app.get("/tributes", async (_req, res) => {
   }
 });
 
-app.post("/tributes", clearCache("tributes"), async (req, res) => {
-  const { name, relationship, message, type } = req.body;
-  const sanitizedMessage = DOMPurify.sanitize(message);
-  const id = uuidv4();
-  try {
-    const { rows } = await pool.query(
-      "INSERT INTO tributes (id, name, relationship, message, type) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-      [id, name, relationship, sanitizedMessage, type],
-    );
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    console.error("Error posting tribute:", err);
-    res.status(500).json({ error: "Failed to post tribute." });
-  }
-});
+app.post(
+  "/tributes",
+  resolveMemorial,
+  clearCache((req) => `tributes-${req.memorial.id}`),
+  async (req, res) => {
+    const { name, relationship, message, type } = req.body;
+    const sanitizedMessage = DOMPurify.sanitize(message);
+    const id = uuidv4();
+    try {
+      const { rows } = await pool.query(
+        "INSERT INTO tributes (id, name, relationship, message, type, memorial_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+        [id, name, relationship, sanitizedMessage, type, req.memorial.id],
+      );
+      res.status(201).json(rows[0]);
+    } catch (err) {
+      console.error("Error posting tribute:", err);
+      res.status(500).json({ error: "Failed to post tribute." });
+    }
+  },
+);
 
 app.delete(
   "/tributes/:id",
   auth,
   adminOnly,
-  clearCache("tributes"),
+  resolveMemorial,
+  clearCache((req) => `tributes-${req.memorial.id}`),
   async (req, res) => {
     const { id } = req.params;
     try {
-      await pool.query("DELETE FROM tributes WHERE id = $1", [id]);
+      await pool.query("DELETE FROM tributes WHERE id = $1 AND memorial_id = $2", [id, req.memorial.id]);
       res.status(204).send();
     } catch (err) {
       console.error("Error deleting tribute:", err);
@@ -145,8 +190,8 @@ app.delete(
 );
 
 /* ───────────────── Eulogy Endpoints ──────────────────────────────── */
-app.get("/eulogy", async (_req, res) => {
-  const cacheKey = "eulogy";
+app.get("/eulogy", resolveMemorial, async (req, res) => {
+  const cacheKey = `eulogy-${req.memorial.id}`;
   const now = Date.now();
   if (cache[cacheKey] && now - cache[cacheKey].timestamp < CACHE_DURATION_MS) {
     console.log("Serving eulogy from cache");
@@ -154,7 +199,8 @@ app.get("/eulogy", async (_req, res) => {
   }
   try {
     const { rows } = await pool.query(
-      "SELECT content FROM eulogy_content LIMIT 1",
+      "SELECT content FROM eulogy_content WHERE memorial_id = $1 LIMIT 1",
+      [req.memorial.id],
     );
     const data = { content: rows.length > 0 ? rows[0].content : "" };
     cache[cacheKey] = {
@@ -173,14 +219,15 @@ app.put(
   "/eulogy",
   auth,
   adminOnly,
-  clearCache("eulogy"),
+  resolveMemorial,
+  clearCache((req) => `eulogy-${req.memorial.id}`),
   async (req, res) => {
     const { content } = req.body;
     try {
-      // Assuming there's only one row for eulogy content (id=1)
-      await pool.query("UPDATE eulogy_content SET content = $1 WHERE id = 1", [
-        content,
-      ]);
+      await pool.query(
+        "INSERT INTO eulogy_content (memorial_id, content) VALUES ($1,$2) ON CONFLICT (memorial_id) DO UPDATE SET content = EXCLUDED.content",
+        [req.memorial.id, content],
+      );
       res.status(200).json({ message: "Eulogy content updated successfully." });
     } catch (err) {
       console.error("Error updating eulogy content:", err);
@@ -190,8 +237,8 @@ app.put(
 );
 
 /* ───────────────── Photos Endpoints ───────────────────────────────── */
-app.get("/photos", async (_req, res) => {
-  const cacheKey = "photos";
+app.get("/photos", resolveMemorial, async (req, res) => {
+  const cacheKey = `photos-${req.memorial.id}`;
   const now = Date.now();
   if (cache[cacheKey] && now - cache[cacheKey].timestamp < CACHE_DURATION_MS) {
     console.log("Serving photos from cache");
@@ -199,7 +246,8 @@ app.get("/photos", async (_req, res) => {
   }
   try {
     const { rows } = await pool.query(
-      "SELECT * FROM photos ORDER BY timestamp DESC",
+      "SELECT * FROM photos WHERE memorial_id = $1 ORDER BY timestamp DESC",
+      [req.memorial.id],
     );
     cache[cacheKey] = {
       timestamp: now,
@@ -207,8 +255,7 @@ app.get("/photos", async (_req, res) => {
     };
     console.log("Serving photos from DB and caching");
     res.json(rows);
-  } catch (err)
- {
+  } catch (err) {
     console.error("Error fetching photos:", err);
     res.status(500).json({ error: "Failed to fetch photos." });
   }
@@ -217,7 +264,8 @@ app.get("/photos", async (_req, res) => {
 app.post(
   "/photos",
   upload.array("photos"),
-  clearCache("photos"),
+  resolveMemorial,
+  clearCache((req) => `photos-${req.memorial.id}`),
   async (req, res) => {
     const files = Array.isArray(req.files) ? req.files : [];
     const { caption, name, email } = req.body;
@@ -258,8 +306,8 @@ app.post(
 
         /* save metadata in Postgres */
         const { rows } = await pool.query(
-          "INSERT INTO photos (id, src, caption, name, email) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-          [id, pub.publicUrl, caption, name, email],
+          "INSERT INTO photos (id, src, caption, name, email, memorial_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+          [id, pub.publicUrl, caption, name, email, req.memorial.id],
         );
         newPhotos.push(rows[0]);
       }
@@ -276,25 +324,22 @@ app.delete(
   "/photos/:id",
   auth,
   adminOnly,
-  clearCache("photos"),
+  resolveMemorial,
+  clearCache((req) => `photos-${req.memorial.id}`),
   async (req, res) => {
     const { id } = req.params;
     try {
-      // First, get the photo src to delete from Supabase
       const { rows } = await pool.query(
-        "SELECT src FROM photos WHERE id = $1",
-        [id],
+        "SELECT src FROM photos WHERE id = $1 AND memorial_id = $2",
+        [id, req.memorial.id],
       );
       if (rows.length > 0) {
         const src = rows[0].src;
         const filename = path.basename(new URL(src).pathname);
-
-        // Delete from Supabase
         await supabase.storage.from(BUCKET).remove([filename]);
       }
 
-      // Delete from database
-      await pool.query("DELETE FROM photos WHERE id = $1", [id]);
+      await pool.query("DELETE FROM photos WHERE id = $1 AND memorial_id = $2", [id, req.memorial.id]);
       res.status(204).send();
     } catch (err) {
       console.error("Error deleting photo:", err);

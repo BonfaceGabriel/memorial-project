@@ -12,6 +12,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
+import { memorialQuery } from "@/lib/memorial";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 interface Photo {
@@ -44,14 +46,14 @@ const Index = () => {
   
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/photos`)
+    fetch(`${API_BASE_URL}/photos?${memorialQuery()}`)
       .then((response) => response.json())
       .then((data) => {
         setPreviewImages(data.slice(0, 6).map(withFullSrc));
       })
       .catch((error) => console.error("Error fetching photos:", error));
 
-    fetch(`${API_BASE_URL}/tributes`)
+    fetch(`${API_BASE_URL}/tributes?${memorialQuery()}`)
       .then((response) => response.json())
       .then((data) => {
         setRecentTributes(data.slice(0, 3));
