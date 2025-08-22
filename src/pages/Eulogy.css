@@ -1,0 +1,7 @@
+.eulogy-subheading {
+  font-family: "TT Chocolates Trial DemiBold", sans-serif;
+  font-size: 1.5rem;
+  text-align: center;
+  color: hsl(var(--gold));
+  margin-bottom: 1rem;
+}
