@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import useAuth from "@/hooks/use-auth";
+import { memorialQuery } from "@/lib/memorial";
 
 interface User {
   id: number;
@@ -29,7 +30,7 @@ const AdminPage = () => {
           setError("No token found");
           return;
         }
-        const response = await fetch("/users", {
+        const response = await fetch(`/users?${memorialQuery()}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -58,7 +59,7 @@ const AdminPage = () => {
         setError("No token found");
         return;
       }
-      const response = await fetch(`/users/${userId}`, {
+      const response = await fetch(`/users/${userId}?${memorialQuery()}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,

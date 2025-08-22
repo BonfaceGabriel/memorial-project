@@ -10,6 +10,7 @@ import { Trash2 } from "lucide-react";
 import useAuth from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { memorialQuery } from "@/lib/memorial";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,7 +68,7 @@ const Tributes = () => {
 
   const fetchTributes = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/tributes`);
+      const response = await fetch(`${API_BASE_URL}/tributes?${memorialQuery()}`);
       const data = await response.json();
       setTributes(data);
     } catch (error) {
@@ -97,7 +98,7 @@ const Tributes = () => {
 
       await Promise.all(
         tributeIds.map((tributeId) =>
-          fetch(`${API_BASE_URL}/tributes/${tributeId}`, {
+          fetch(`${API_BASE_URL}/tributes/${tributeId}?${memorialQuery()}`, {
             method: "DELETE",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -124,7 +125,7 @@ const Tributes = () => {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/tributes`, {
+      const response = await fetch(`${API_BASE_URL}/tributes?${memorialQuery()}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
